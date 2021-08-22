@@ -6,6 +6,7 @@ import Document from '../model/document'
 import FloatFactory from '../model/floatFactory'
 import { ConfigurationChangeEvent, HandlerDelegate } from '../types'
 import { disposeAll, isMarkdown } from '../util'
+import { enableBorder } from '../util/border'
 import { byteLength } from '../util/string'
 import workspace from '../workspace'
 const logger = require('../util/logger')('handler-signature')
@@ -218,6 +219,7 @@ export default class Signature {
       autoHide: false,
       offsetX: offset,
       modes: ['i', 'ic', 's'],
+      border: enableBorder,
       excludeImages
     })
   }

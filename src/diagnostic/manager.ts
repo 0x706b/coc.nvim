@@ -8,6 +8,7 @@ import BufferSync from '../model/bufferSync'
 import FloatFactory from '../model/floatFactory'
 import { ConfigurationChangeEvent, ErrorItem, LocationListItem } from '../types'
 import { disposeAll } from '../util'
+import { enableBorder } from '../util/border'
 import { comparePosition, rangeIntersect } from '../util/position'
 import window from '../window'
 import workspace from '../workspace'
@@ -449,7 +450,7 @@ export class DiagnosticManager implements Disposable {
     })
     if (useFloat) {
       let { maxWindowHeight, maxWindowWidth } = this.config
-      await this.floatFactory.show(docs, { maxWidth: maxWindowWidth, maxHeight: maxWindowHeight, modes: ['n'] })
+      await this.floatFactory.show(docs, { maxWidth: maxWindowWidth, maxHeight: maxWindowHeight, modes: ['n'], border: enableBorder })
     } else {
       let lines = docs.map(d => d.content).join('\n').split(/\r?\n/)
       if (lines.length) {

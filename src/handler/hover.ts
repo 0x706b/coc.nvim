@@ -9,6 +9,7 @@ import { TextDocumentContentProvider } from '../provider'
 import { ConfigurationChangeEvent, HandlerDelegate } from '../types'
 import { disposeAll, isMarkdown } from '../util'
 import { readFileLines } from '../util/fs'
+import { enableBorder } from '../util/border'
 import workspace from '../workspace'
 const logger = require('../util/logger')('handler-hover')
 
@@ -160,7 +161,8 @@ export default class HoverHandler {
         maxWidth: this.config.floatMaxWidth,
         maxHeight: this.config.floatMaxHeight,
         autoHide: this.config.autoHide,
-        excludeImages: this.excludeImages
+        excludeImages: this.excludeImages,
+        border: enableBorder
       }
       await this.hoverFactory.show(docs, opts)
       return
