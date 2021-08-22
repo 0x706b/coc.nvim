@@ -1,6 +1,7 @@
 import { Neovim } from '@chemzqm/neovim'
 import { CancellationToken } from 'vscode-jsonrpc'
 import { parseDocuments, Documentation } from '../markdown'
+import { enableBorder } from '../util/border'
 const logger = require('../util/logger')('floating')
 
 export interface PumBounding {
@@ -38,6 +39,7 @@ export default class Floating {
       highlights,
       maxWidth: config.maxPreviewWidth,
       pumbounding: bounding,
+      border: enableBorder
     }])
     if (this.isVim) nvim.command('redraw', true)
     if (!res || res.length == 0) return
