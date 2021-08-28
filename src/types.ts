@@ -359,6 +359,10 @@ export interface DidChangeTextDocumentParams {
    * Original content before change
    */
   original: string
+  /**
+   * Changed lines
+   */
+  originalLines: ReadonlyArray<string>
 }
 // }}
 
@@ -409,10 +413,6 @@ export interface CompleteResult {
   startcol?: number
   source?: string
   priority?: number
-}
-
-export interface RecentScore {
-  [index: string]: number
 }
 
 // option on complete & should_complete

@@ -1,26 +1,101 @@
-import fastDiff from 'fast-diff'
 import { Neovim } from '@chemzqm/neovim'
+import fastDiff from 'fast-diff'
 import fs from 'fs'
 import path from 'path'
 import util from 'util'
-import { Disposable, CancellationToken } from 'vscode-languageserver-protocol'
-import events from './events'
-import extensions from './extensions'
-import Source from './model/source'
-import VimSource from './model/source-vim'
-import { CompleteOption, ISource, SourceStat, SourceType, ExtendedCompleteItem, SourceConfig } from './types'
-import { disposeAll, getUri } from './util'
-import { statAsync } from './util/fs'
-import { score } from './util/match'
-import workspace from './workspace'
-import window from './window'
-import { byteSlice } from './util/string'
-const logger = require('./util/logger')('sources')
+import { CompletionItemKind, Disposable, DocumentSelector } from 'vscode-languageserver-protocol'
+import events from '../events'
+import extensions from '../extensions'
+import { CompletionItemProvider } from '../provider'
+import { CompleteOption, ExtendedCompleteItem, ISource, SourceConfig, SourceStat, SourceType } from '../types'
+import { disposeAll, getUri } from '../util'
+import { statAsync } from '../util/fs'
+import { score } from '../util/match'
+import { isEmpty } from '../util/object'
+import { byteSlice } from '../util/string'
+import window from '../window'
+import workspace from '../workspace'
+import Source from './source'
+import LanguageSource, { CompleteConfig } from './source-language'
+import VimSource from './source-vim'
+const logger = require('../util/logger')('sources')
 
 export class Sources {
   private sourceMap: Map<string, ISource> = new Map()
   private disposables: Disposable[] = []
   private remoteSourcePaths: string[] = []
+  private completeConfig: CompleteConfig
+
+  public init(): void {
+    this.loadCompleteConfig()
+    workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('suggest')) {
+        this.loadCompleteConfig()
+      }
+    }, null, this.disposables)
+    this.createNativeSources()
+    this.createRemoteSources()
+    events.on('BufEnter', this.onDocumentEnter, this, this.disposables)
+    workspace.watchOption('runtimepath', async (oldValue, newValue) => {
+      let result = fastDiff(oldValue, newValue)
+      for (let [changeType, value] of result) {
+        if (changeType == 1) {
+          let paths = value.replace(/,$/, '').split(',')
+          for (let p of paths) {
+            if (p) await this.createVimSources(p)
+          }
+        }
+      }
+    }, this.disposables)
+  }
+
+  private loadCompleteConfig(): void {
+    let suggest = workspace.getConfiguration('suggest')
+    let labels = suggest.get<{ [key: string]: string }>('completionItemKindLabels', {})
+    let map = new Map([
+      [CompletionItemKind.Text, labels['text'] || 'v'],
+      [CompletionItemKind.Method, labels['method'] || 'f'],
+      [CompletionItemKind.Function, labels['function'] || 'f'],
+      [CompletionItemKind.Constructor, typeof labels['constructor'] == 'function' ? 'f' : labels['con' + 'structor']],
+      [CompletionItemKind.Field, labels['field'] || 'm'],
+      [CompletionItemKind.Variable, labels['variable'] || 'v'],
+      [CompletionItemKind.Class, labels['class'] || 'C'],
+      [CompletionItemKind.Interface, labels['interface'] || 'I'],
+      [CompletionItemKind.Module, labels['module'] || 'M'],
+      [CompletionItemKind.Property, labels['property'] || 'm'],
+      [CompletionItemKind.Unit, labels['unit'] || 'U'],
+      [CompletionItemKind.Value, labels['value'] || 'v'],
+      [CompletionItemKind.Enum, labels['enum'] || 'E'],
+      [CompletionItemKind.Keyword, labels['keyword'] || 'k'],
+      [CompletionItemKind.Snippet, labels['snippet'] || 'S'],
+      [CompletionItemKind.Color, labels['color'] || 'v'],
+      [CompletionItemKind.File, labels['file'] || 'F'],
+      [CompletionItemKind.Reference, labels['reference'] || 'r'],
+      [CompletionItemKind.Folder, labels['folder'] || 'F'],
+      [CompletionItemKind.EnumMember, labels['enumMember'] || 'm'],
+      [CompletionItemKind.Constant, labels['constant'] || 'v'],
+      [CompletionItemKind.Struct, labels['struct'] || 'S'],
+      [CompletionItemKind.Event, labels['event'] || 'E'],
+      [CompletionItemKind.Operator, labels['operator'] || 'O'],
+      [CompletionItemKind.TypeParameter, labels['typeParameter'] || 'T'],
+    ])
+    let floatEnable = suggest.get<boolean>('floatEnable', true)
+    let detailField = suggest.get<string>('detailField', 'preview')
+    if (detailField == 'preview' && (!floatEnable || !workspace.floatSupported)) {
+      detailField = 'menu'
+    }
+    this.completeConfig = Object.assign(this.completeConfig || {}, {
+      labels: map,
+      floatEnable,
+      detailField,
+      defaultKindText: labels['default'] || '',
+      priority: suggest.get<number>('languageSourcePriority', 99),
+      echodocSupport: suggest.get<boolean>('echodocSupport', false),
+      snippetsSupport: suggest.get<boolean>('snippetsSupport', true),
+      detailMaxLength: suggest.get<number>('detailMaxLength', 100),
+      invalidInsertCharacters: suggest.get<string[]>('invalidInsertCharacters', ['(', '<', '{', '[', '\r', '\n']),
+    })
+  }
 
   private get nvim(): Neovim {
     return workspace.nvim
@@ -28,11 +103,38 @@ export class Sources {
 
   private createNativeSources(): void {
     try {
-      this.disposables.push((require('./source/around')).regist(this.sourceMap))
-      this.disposables.push((require('./source/buffer')).regist(this.sourceMap))
-      this.disposables.push((require('./source/file')).regist(this.sourceMap))
+      this.disposables.push((require('./native/around')).regist(this.sourceMap))
+      this.disposables.push((require('./native/buffer')).regist(this.sourceMap))
+      this.disposables.push((require('./native/file')).regist(this.sourceMap))
     } catch (e) {
       console.error('Create source error:' + e.message)
+    }
+  }
+
+  public createLanguageSource(
+    name: string,
+    shortcut: string,
+    selector: DocumentSelector | null,
+    provider: CompletionItemProvider,
+    triggerCharacters: string[],
+    priority?: number | undefined,
+    allCommitCharacters?: string[]
+  ): Disposable {
+    let source = new LanguageSource(
+      name,
+      shortcut,
+      provider,
+      selector,
+      triggerCharacters || [],
+      allCommitCharacters || [],
+      priority,
+      this.completeConfig)
+    logger.debug('created service source', name)
+    this.sourceMap.set(name, source)
+    return {
+      dispose: () => {
+        this.sourceMap.delete(name)
+      }
     }
   }
 
@@ -149,23 +251,6 @@ export class Sources {
     }
   }
 
-  public init(): void {
-    this.createNativeSources()
-    this.createRemoteSources()
-    events.on('BufEnter', this.onDocumentEnter, this, this.disposables)
-    workspace.watchOption('runtimepath', async (oldValue, newValue) => {
-      let result = fastDiff(oldValue, newValue)
-      for (let [changeType, value] of result) {
-        if (changeType == 1) {
-          let paths = value.replace(/,$/, '').split(',')
-          for (let p of paths) {
-            if (p) await this.createVimSources(p)
-          }
-        }
-      }
-    }, this.disposables)
-  }
-
   public get names(): string[] {
     return Array.from(this.sourceMap.keys())
   }
@@ -181,25 +266,6 @@ export class Sources {
   public getSource(name: string): ISource | null {
     if (!name) return null
     return this.sourceMap.get(name) || null
-  }
-
-  public async doCompleteResolve(item: ExtendedCompleteItem, token: CancellationToken): Promise<void> {
-    let source = this.getSource(item.source)
-    if (source && typeof source.onCompleteResolve == 'function') {
-      try {
-        await Promise.resolve(source.onCompleteResolve(item, token))
-      } catch (e) {
-        logger.error('Error on complete resolve:', e.stack)
-      }
-    }
-  }
-
-  public async doCompleteDone(item: ExtendedCompleteItem, opt: CompleteOption): Promise<void> {
-    let data = JSON.parse(item.user_data)
-    let source = this.getSource(data.source)
-    if (source && typeof source.onCompleteDone === 'function') {
-      await Promise.resolve(source.onCompleteDone(item, opt))
-    }
   }
 
   public shouldCommit(item: ExtendedCompleteItem, commitCharacter: string): boolean {
@@ -333,8 +399,7 @@ export class Sources {
   private onDocumentEnter(bufnr: number): void {
     let { sources } = this
     for (let s of sources) {
-      if (!s.enable) continue
-      if (typeof s.onEnter == 'function') {
+      if (s.enable && typeof s.onEnter == 'function') {
         s.onEnter(bufnr)
       }
     }
@@ -342,8 +407,7 @@ export class Sources {
 
   public createSource(config: SourceConfig): Disposable {
     if (!config.name || !config.doComplete) {
-      console.error(`name and doComplete required for createSource`)
-      return
+      throw new Error(`name and doComplete required for createSource`)
     }
     let source = new Source(Object.assign({ sourceType: SourceType.Service } as any, config))
     return this.addSource(source)
@@ -351,6 +415,7 @@ export class Sources {
 
   private disabledByLanguageId(source: ISource, languageId: string): boolean {
     let map = workspace.env.disabledSources
+    if (isEmpty(map)) return false
     let list = map ? map[languageId] : []
     return Array.isArray(list) && list.includes(source.name)
   }

@@ -181,15 +181,19 @@ export class Helper extends EventEmitter {
     return str.trim()
   }
 
-  public updateConfiguration(key: string, value: any): void {
+  public updateConfiguration(key: string, value: any): () => void {
     let { configurations } = workspace as any
+    let curr = workspace.getConfiguration(key)
     configurations.updateUserConfig({ [key]: value })
+    return () => {
+      configurations.updateUserConfig({ [key]: curr })
+    }
   }
 
   public async mockFunction(name: string, result: string | number | any): Promise<void> {
     let content = `
     function! ${name}(...)
-      return ${JSON.stringify(result)}
+      return ${typeof result == 'number' ? result : JSON.stringify(result)}
     endfunction
     `
     let file = await createTmpFile(content)

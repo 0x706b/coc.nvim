@@ -2,7 +2,6 @@ import { NeovimClient as Neovim } from '@chemzqm/neovim'
 import { EventEmitter } from 'events'
 import fs from 'fs'
 import path from 'path'
-import matchAll from 'string.prototype.matchall'
 import { CallHierarchyItem, CodeAction, CodeActionKind } from 'vscode-languageserver-protocol'
 import { URI } from 'vscode-uri'
 import commandManager from './commands'
@@ -12,7 +11,6 @@ import diagnosticManager from './diagnostic/manager'
 import events from './events'
 import extensions from './extensions'
 import Handler from './handler'
-import languages from './languages'
 import listManager from './list/manager'
 import services from './services'
 import snippetManager from './snippets/manager'
@@ -21,7 +19,6 @@ import { OutputChannel, PatternType } from './types'
 import window from './window'
 import workspace from './workspace'
 const logger = require('./util/logger')('plugin')
-matchAll.shim()
 
 declare const REVISION
 
@@ -294,7 +291,6 @@ export default class Plugin extends EventEmitter {
     try {
       await extensions.init()
       await workspace.init()
-      languages.init()
       snippetManager.init()
       completion.init()
       diagnosticManager.init()
@@ -315,8 +311,7 @@ export default class Plugin extends EventEmitter {
       logger.info(`coc.nvim ${this.version} initialized with node: ${process.version} after ${Date.now() - s}ms`)
       this.emit('ready')
     } catch (e) {
-      console.error(`Error on initialize: ${e.stack}`)
-      logger.error(e.stack)
+      nvim.echoError(e)
     }
   }
 

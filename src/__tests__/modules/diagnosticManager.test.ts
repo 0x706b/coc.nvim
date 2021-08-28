@@ -90,6 +90,7 @@ describe('diagnostic manager', () => {
   describe('toggleDiagnostic()', () => {
     it('should toggle diagnostics', async () => {
       let doc = await createDocument()
+      await helper.wait(50)
       manager.toggleDiagnostic()
       await helper.wait(50)
       let val = await doc.buffer.getVar('coc_diagnostic_info') as any
@@ -134,6 +135,8 @@ describe('diagnostic manager', () => {
       helper.updateConfiguration('diagnostic.level', 'hint')
       helper.updateConfiguration('diagnostic.showUnused', true)
       helper.updateConfiguration('diagnostic.showDeprecated', true)
+      let ranges = manager.getSortedRanges(doc.uri)
+      expect(ranges.length).toBe(3)
     })
   })
 
