@@ -153,6 +153,8 @@ export default class Complete {
             if (empty) this._onDidComplete.fire()
             resolve(undefined)
           } else {
+            let { results } = this
+            this.results = results.filter(res => res.source != name)
             resolve(undefined)
           }
         }, err => {
@@ -195,8 +197,6 @@ export default class Complete {
       if (b.source == 'tabnine') return -1
       return b.priority - a.priority
     })
-    let now = Date.now()
-    let { bufnr } = this.option
     let { snippetIndicator, removeDuplicateItems, fixInsertedWord, asciiCharactersOnly } = this.config
     let followPart = (!fixInsertedWord || cid == 0) ? '' : this.getFollowPart()
     if (results.length == 0) return []
@@ -242,14 +242,13 @@ export default class Complete {
           if (item.signature) user_data.signature = item.signature
           item.user_data = JSON.stringify(user_data)
           item.source = source
-          item.recentScore = 0
         }
         item.priority = priority
         item.abbr = item.abbr || item.word
         item.score = input.length ? score * (item.sourceScore || 1) : 0
         item.localBonus = this.localBonus ? this.localBonus.get(filterText) || 0 : 0
         words.add(word)
-        if (item.isSnippet && item.word == input) {
+        if (item.isSnippet && input.length && item.word == input) {
           item.preselect = true
         }
         arr.push(item)
@@ -263,7 +262,6 @@ export default class Complete {
       if (a.score != b.score) return b.score - a.score
       if (a.priority != b.priority) return b.priority - a.priority
       if (sa && sb && sa != sb) return sa < sb ? -1 : 1
-      if (a.recentScore != b.recentScore) return b.recentScore - a.recentScore
       if (a.localBonus != b.localBonus) {
         if (a.localBonus && b.localBonus && wa != wb) {
           if (wa.startsWith(wb)) return 1
